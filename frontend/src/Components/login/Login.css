@@ -1,0 +1,95 @@
+/* Login page specific form styles, shares base look via LandingPage.css */
+
+.auth-card {
+	max-width: 520px;
+	width: 100%;
+	margin: 0 auto;
+	padding: 40px;
+	text-align: center;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	background: white !important;
+	border-radius: 20px;
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.auth-form {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+	margin: 24px 0;
+	width: 100%;
+	max-width: 400px;
+}
+
+.auth-label {
+	display: grid;
+	gap: 6px;
+	text-align: left;
+	color: var(--lp-text);
+	font-size: 14px;
+}
+
+.auth-input-wrap {
+	position: relative;
+}
+
+.auth-input {
+	appearance: none;
+	box-sizing: border-box;
+	width: 100%;
+	border: 1px solid black;
+	border-radius: 8px;
+	background: white !important;
+	color: var(--lp-text);
+	padding: 12px 42px 12px 14px;
+	outline: none;
+	transition: border 0.15s ease, box-shadow 0.15s ease;
+	font-size: 14px;
+}
+
+.auth-eye {
+	position: absolute;
+	right: 10px;
+	top: 50%;
+	transform: translateY(-50%);
+	background: transparent;
+	border: none;
+	color: var(--lp-muted);
+	cursor: pointer;
+	font-size: 18px;
+	line-height: 1;
+}
+
+.auth-eye:hover {
+	color: #cfd8ff;
+}
+
+.auth-input:focus {
+    border-color: var(--lp-primary);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+.auth-meta {
+    margin: 14px 0 0 0;
+    color: var(--lp-muted);
+    font-size: 14px;
+}
+
+/* Fix Chrome autofill turning inputs white */
+input.auth-input:-webkit-autofill,
+input.auth-input:-webkit-autofill:hover,
+input.auth-input:-webkit-autofill:focus {
+	-webkit-text-fill-color: var(--lp-text);
+	transition: background-color 9999s ease-in-out 0s;
+	box-shadow: 0 0 0px 1000px white inset;
+	border-color: var(--lp-outline);
+}
+
+@media (max-width: 480px) {
+    .auth-card { padding-left: 12px; padding-right: 12px; }
+    .lp-hero { padding: 24px 16px; }
+}
+
+

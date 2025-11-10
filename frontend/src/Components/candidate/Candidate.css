@@ -1,0 +1,180 @@
+.cand-main {
+	padding-left: 0; /* remove left padding so sidebar hugs the edge */
+	padding-right: 0;
+	justify-items: stretch; /* override landing page center alignment */
+	max-width: none; /* override lp-main max-width */
+	margin: 0; /* override lp-main margin auto */
+}
+
+.cand-header {
+	position: fixed;
+	top: 20px;
+	left: 0;
+	margin: 0;
+	padding: 12px 20px;
+	background: white;
+	border-bottom: 1px solid #e3e8f0;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+	width: 100%;
+	z-index: 100;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 1.2;
+    color: #1a2b4b;
+    text-align: left;
+}
+
+.cand-layout {
+	display: grid;
+	grid-template-columns: 260px 1fr;
+	gap: 22px;
+	width: 100%;
+	align-items: stretch;
+	height: 100%;
+	min-height: calc(100dvh - 120px);
+	align-self: stretch;
+	margin-top: 65px;
+}
+
+.cand-sidebar {
+	background: white;
+	border-radius: 20px;
+	padding: 20px;
+	box-shadow: 0 4px 18px rgba(0,0,0,0.05);
+	border: 1px solid #e3e8f0;
+	position: relative;
+	height: 100%;
+	align-self: stretch;
+}
+
+.cand-nav {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	height: 100%;
+}
+
+.cand-btn {
+	appearance: none;
+	border: none;
+	border-radius: 10px;
+	padding: 12px 20px;
+	text-align: left;
+	background: #e9eef7;
+	color: #1a2b4b;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	width: 100%;
+	font-weight: 500;
+	font-size: 16px;
+}
+
+.cand-btn:hover {
+	background: #4ea1ff;
+	color: white;
+}
+
+.cand-btn.active {
+	background: #4ea1ff;
+	color: white;
+}
+
+.cand-btn:focus-visible {
+	outline: 3px solid rgba(174, 188, 255, 0.45);
+	outline-offset: 2px;
+}
+
+.cand-content {
+	background: white;
+	border-radius: 20px;
+	padding: 30px;
+	box-shadow: 0 4px 18px rgba(0,0,0,0.05);
+	border: 1px solid #e3e8f0;
+	min-height: 280px;
+}
+
+.cand-content .lp-hero-title { margin-top: 0; }
+
+/* Profile form */
+.cand-form { display: grid; gap: 14px; max-width: 560px; }
+.cand-field { display: grid; gap: 6px; text-align: left; }
+.cand-input, .cand-textarea, .cand-file {
+	appearance: none; box-sizing: border-box; width: 100%; max-width: 100%;
+	border: 1px solid #e3e8f0;
+	border-radius: 10px; background: white; color: #1a2b4b;
+	padding: 12px 14px; outline: none; transition: border .15s, box-shadow .15s;
+}
+.cand-textarea { min-height: 90px; resize: vertical; }
+.cand-input:focus, .cand-textarea:focus, .cand-file:focus { border-color: #4ea1ff; box-shadow: 0 0 0 3px rgba(78,161,255,.18); }
+.cand-actions { display: flex; gap: 10px; }
+
+/* Dashboard styles */
+.dashboard-content {
+	display: grid;
+	gap: 24px;
+}
+
+.profile-section, .skills-section {
+	background: white;
+	border-radius: 20px;
+	padding: 25px;
+	border: 1px solid #e3e8f0;
+	box-shadow: 0 4px 18px rgba(0,0,0,0.05);
+}
+
+.profile-section h3, .skills-section h3 {
+	margin: 0 0 16px 0;
+	color: #1a2b4b;
+	font-size: 20px;
+	font-weight: 700;
+}
+
+.profile-info p {
+	margin: 8px 0;
+	color: #445168;
+	font-size: 16px;
+}
+
+.profile-info strong {
+	color: #1a2b4b;
+	margin-right: 8px;
+}
+
+.skills-container {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.skill-tag {
+	display: inline-block;
+	padding: 6px 12px;
+	background: #4ea1ff;
+	color: white;
+	border-radius: 10px;
+	font-size: 12px;
+	font-weight: 500;
+	margin: 2px;
+}
+
+.no-profile {
+	text-align: center;
+	padding: 40px 20px;
+	color: #445168;
+	font-size: 16px;
+}
+
+@media (max-width: 800px) {
+	.cand-layout {
+		grid-template-columns: 1fr;
+	}
+	.cand-sidebar {
+		order: 2;
+        position: static;
+        height: auto;
+	}
+	.cand-content {
+		order: 1;
+	}
+}
