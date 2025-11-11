@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { logout, decodeToken } from '../../services/auth';
 import { httpRequest } from '../../services/http';
 import { useNavigate } from 'react-router-dom';
+import ClientAnalytics from './ClientAnalytics';
 
 function ClientDashboard() {
     const [active, setActive] = useState('dashboard');
@@ -24,6 +25,7 @@ function ClientDashboard() {
                     <aside className="cand-sidebar">
                         <nav className="cand-nav">
                             <button className={`cand-btn ${active==='dashboard' ? 'active' : ''}`} onClick={() => setActive('dashboard')}>Dashboard</button>
+                            <button className={`cand-btn ${active==='analytics' ? 'active' : ''}`} onClick={() => setActive('analytics')}>Analytics</button>
                             <button className={`cand-btn ${active==='requirements' ? 'active' : ''}`} onClick={() => setActive('requirements')}>Requirements</button>
                             <button className={`cand-btn ${active==='interviews' ? 'active' : ''}`} onClick={() => setActive('interviews')}>Interviews</button>
                             <button className={`cand-btn ${active==='candidates' ? 'active' : ''}`} onClick={() => setActive('candidates')}>Shortlisted</button>
@@ -34,6 +36,9 @@ function ClientDashboard() {
                     <section className="cand-content">
                         {active === 'dashboard' && (
                             <ClientDashboardContent />
+                        )}
+                        {active === 'analytics' && (
+                            <ClientAnalytics />
                         )}
                         {active === 'requirements' && (
                             <RequirementsContent />

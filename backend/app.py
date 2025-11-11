@@ -1689,6 +1689,237 @@ def get_client_dashboard_stats():
         app.logger.exception('Failed to get client dashboard stats')
         return jsonify({'message': 'Internal server error', 'error': str(e)}), 500
 
+@app.route('/client/analytics', methods=['GET'])
+def get_client_analytics():
+    try:
+        payload = verify_token()
+        if not payload:
+            return jsonify({'message': 'Unauthorized'}), 401
+        
+        client_id = payload['user_id']
+        
+        # Get optional date range parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        time_range = request.args.get('range', '30d')  # Default to 30 days
+        
+        # Calculate date range
+        if start_date and end_date:
+            # Custom date range
+            date_filter = f"jr.created_at >= '{start_date}' AND jr.created_at <= '{end_date} 23:59:59'"
+            interval_days = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days
+        elif time_range == '7d':
+            date_filter = "jr.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+            interval_days = 7
+        elif time_range == '90d':
+            date_filter = "jr.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)"
+            interval_days = 90
+        else:  # Default 30d
+            date_filter = "jr.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
+            interval_days = 30
+            
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Requirements Posted Over Time
+        cursor.execute(f"""
+            SELECT DATE(jr.created_at) as date, COUNT(*) as count
+            FROM job_requirements jr
+            WHERE jr.client_id = %s AND {date_filter}
+            GROUP BY DATE(jr.created_at)
+            ORDER BY date ASC
+        """, (client_id,))
+        requirements_over_time = [{'date': str(row[0]), 'count': row[1]} for row in cursor.fetchall()]
+        
+        # 2. Interview Outcomes for this client
+        cursor.execute("""
+            SELECT 
+                ir.decision,
+                COUNT(*) as count
+            FROM interviews i
+            LEFT JOIN interview_results ir ON i.id = ir.interview_id
+            WHERE i.client_id = %s AND ir.decision IS NOT NULL
+            GROUP BY ir.decision
+        """, (client_id,))
+        
+        outcomes_data = cursor.fetchall()
+        interview_outcomes = []
+        for row in outcomes_data:
+            status = row[0].capitalize() if row[0] else 'Pending'
+            interview_outcomes.append({'status': status, 'count': row[1]})
+        
+        # Add pending interviews
+        cursor.execute("""
+            SELECT COUNT(*) FROM interviews i
+            WHERE i.client_id = %s 
+            AND NOT EXISTS (SELECT 1 FROM interview_results ir WHERE ir.interview_id = i.id)
+        """, (client_id,))
+        pending_count = cursor.fetchone()[0]
+        if pending_count > 0:
+            interview_outcomes.append({'status': 'Pending', 'count': pending_count})
+        
+        # 3. Top Skills Requested by this client
+        cursor.execute("""
+            SELECT required_skills
+            FROM job_requirements
+            WHERE client_id = %s AND required_skills IS NOT NULL AND required_skills != ''
+        """, (client_id,))
+        
+        all_skills = {}
+        for row in cursor.fetchall():
+            try:
+                skills_list = json.loads(row[0]) if row[0] else []
+                for skill in skills_list:
+                    if skill:
+                        all_skills[skill] = all_skills.get(skill, 0) + 1
+            except:
+                continue
+        
+        top_skills = sorted(all_skills.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_skills_data = [{'skill': skill, 'count': count} for skill, count in top_skills]
+        
+        # 4. Candidates by Job Title
+        cursor.execute("""
+            SELECT jr.title, COUNT(DISTINCT i.candidate_id) as candidate_count
+            FROM job_requirements jr
+            LEFT JOIN interviews i ON jr.id = i.requirement_id
+            WHERE jr.client_id = %s
+            GROUP BY jr.id, jr.title
+            HAVING candidate_count > 0
+            ORDER BY candidate_count DESC
+            LIMIT 10
+        """, (client_id,))
+        candidates_by_job = [{'job_title': row[0], 'count': row[1]} for row in cursor.fetchall()]
+        
+        # 5. Hiring Pipeline Funnel
+        cursor.execute("""
+            SELECT COUNT(DISTINCT jr.id)
+            FROM job_requirements jr
+            WHERE jr.client_id = %s
+        """, (client_id,))
+        total_requirements = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.candidate_id)
+            FROM interviews i
+            WHERE i.client_id = %s
+        """, (client_id,))
+        candidates_applied = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.id)
+            FROM interviews i
+            WHERE i.client_id = %s AND i.status = 'scheduled'
+        """, (client_id,))
+        interviews_scheduled = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.id)
+            FROM interviews i
+            WHERE i.client_id = %s AND i.status = 'completed'
+        """, (client_id,))
+        interviews_completed = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.id)
+            FROM interviews i
+            JOIN interview_results ir ON i.id = ir.interview_id
+            WHERE i.client_id = %s AND ir.decision = 'accepted'
+        """, (client_id,))
+        candidates_selected = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT oc.candidate_id)
+            FROM onboarding_confirmations oc
+            WHERE oc.client_id = %s AND oc.confirmation = 'yes'
+        """, (client_id,))
+        candidates_onboarded = cursor.fetchone()[0] or 0
+        
+        pipeline_funnel = [
+            {'stage': 'Requirements Posted', 'count': total_requirements, 'percentage': 100},
+            {'stage': 'Candidates Applied', 'count': candidates_applied, 'percentage': round((candidates_applied / total_requirements * 100) if total_requirements > 0 else 0, 1)},
+            {'stage': 'Interviews Scheduled', 'count': interviews_scheduled, 'percentage': round((interviews_scheduled / candidates_applied * 100) if candidates_applied > 0 else 0, 1)},
+            {'stage': 'Interviews Completed', 'count': interviews_completed, 'percentage': round((interviews_completed / interviews_scheduled * 100) if interviews_scheduled > 0 else 0, 1)},
+            {'stage': 'Candidates Selected', 'count': candidates_selected, 'percentage': round((candidates_selected / interviews_completed * 100) if interviews_completed > 0 else 0, 1)},
+            {'stage': 'Onboarded', 'count': candidates_onboarded, 'percentage': round((candidates_onboarded / candidates_selected * 100) if candidates_selected > 0 else 0, 1)}
+        ]
+        
+        # 6. Overview Metrics
+        # Total requirements
+        cursor.execute("""
+            SELECT COUNT(*) FROM job_requirements WHERE client_id = %s
+        """, (client_id,))
+        total_requirements_all = cursor.fetchone()[0] or 0
+        
+        # Calculate change in requirements (compare current period with previous)
+        if start_date and end_date:
+            cursor.execute(f"""
+                SELECT COUNT(*) FROM job_requirements 
+                WHERE client_id = %s AND 
+                created_at >= DATE_SUB('{start_date}', INTERVAL {interval_days} DAY) 
+                AND created_at < '{start_date}'
+            """, (client_id,))
+        else:
+            cursor.execute(f"""
+                SELECT COUNT(*) FROM job_requirements 
+                WHERE client_id = %s AND 
+                created_at >= DATE_SUB(NOW(), INTERVAL {interval_days * 2} DAY) 
+                AND created_at < DATE_SUB(NOW(), INTERVAL {interval_days} DAY)
+            """, (client_id,))
+        
+        previous_requirements = cursor.fetchone()[0] or 0
+        requirements_change = ((total_requirements_all - previous_requirements) / previous_requirements * 100) if previous_requirements > 0 else 0
+        
+        # Success rate (accepted / total completed interviews)
+        cursor.execute("""
+            SELECT 
+                COUNT(DISTINCT i.id) as total,
+                SUM(CASE WHEN ir.decision = 'accepted' THEN 1 ELSE 0 END) as accepted
+            FROM interviews i
+            LEFT JOIN interview_results ir ON i.id = ir.interview_id
+            WHERE i.client_id = %s AND i.status = 'completed'
+        """, (client_id,))
+        success_data = cursor.fetchone()
+        total_completed = success_data[0] or 0
+        accepted = success_data[1] or 0
+        success_rate = round((accepted / total_completed * 100) if total_completed > 0 else 0, 1)
+        
+        # Average time to fill (from interview creation to onboarding confirmation)
+        cursor.execute("""
+            SELECT AVG(DATEDIFF(oc.created_at, i.created_at)) as avg_days
+            FROM interviews i
+            JOIN onboarding_confirmations oc ON i.id = oc.interview_id
+            WHERE oc.client_id = %s AND oc.confirmation = 'yes'
+        """, (client_id,))
+        avg_time = cursor.fetchone()[0]
+        avg_time_to_fill = round(avg_time) if avg_time else None
+        
+        overview = {
+            'total_requirements': total_requirements_all,
+            'requirements_change': round(requirements_change, 1),
+            'candidates_in_pipeline': candidates_applied,
+            'interviews_completed': interviews_completed,
+            'positions_filled': candidates_onboarded,
+            'avg_time_to_fill': avg_time_to_fill,
+            'success_rate': success_rate
+        }
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'overview': overview,
+            'requirements_over_time': requirements_over_time,
+            'interview_outcomes': interview_outcomes,
+            'top_skills': top_skills_data,
+            'candidates_by_job': candidates_by_job,
+            'pipeline_funnel': pipeline_funnel
+        })
+        
+    except Exception as e:
+        app.logger.exception('Failed to get client analytics')
+        return jsonify({'message': 'Internal server error', 'error': str(e)}), 500
+
 @app.route('/hr/analytics', methods=['GET'])
 def get_hr_analytics():
     try:
