@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { logout, decodeToken } from '../../services/auth';
 import { httpRequest } from '../../services/http';
 import { useNavigate } from 'react-router-dom';
+import HRAnalytics from './HRAnalytics';
 
 function HRDashboard() {
     const [active, setActive] = useState('dashboard');
@@ -24,6 +25,7 @@ function HRDashboard() {
                     <aside className="cand-sidebar">
                         <nav className="cand-nav">
                             <button className={`cand-btn ${active==='dashboard' ? 'active' : ''}`} onClick={() => setActive('dashboard')}>Dashboard</button>
+                            <button className={`cand-btn ${active==='analytics' ? 'active' : ''}`} onClick={() => setActive('analytics')}>Analytics</button>
                             <button className={`cand-btn ${active==='candidates' ? 'active' : ''}`} onClick={() => setActive('candidates')}>Candidates</button>
                             <button className={`cand-btn ${active==='jobs' ? 'active' : ''}`} onClick={() => setActive('jobs')}>Job Postings</button>
                             <button className={`cand-btn ${active==='shortlisted' ? 'active' : ''}`} onClick={() => setActive('shortlisted')}>Shortlisted</button>
@@ -35,6 +37,9 @@ function HRDashboard() {
                     <section className="cand-content">
                         {active === 'dashboard' && (
                             <HRDashboardContent />
+                        )}
+                        {active === 'analytics' && (
+                            <HRAnalytics />
                         )}
                         {active === 'candidates' && (
                             <CandidatesContent />

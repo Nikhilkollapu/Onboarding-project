@@ -1689,6 +1689,333 @@ def get_client_dashboard_stats():
         app.logger.exception('Failed to get client dashboard stats')
         return jsonify({'message': 'Internal server error', 'error': str(e)}), 500
 
+@app.route('/hr/analytics', methods=['GET'])
+def get_hr_analytics():
+    try:
+        payload = verify_token()
+        if not payload:
+            return jsonify({'message': 'Unauthorized'}), 401
+        
+        # Get optional date range parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        time_range = request.args.get('range', '30d')  # Default to 30 days
+        
+        # Calculate date range
+        if start_date and end_date:
+            # Custom date range
+            date_filter = f"created_at >= '{start_date}' AND created_at <= '{end_date} 23:59:59'"
+            interval_days = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days
+        elif time_range == '7d':
+            date_filter = "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+            interval_days = 7
+        elif time_range == '90d':
+            date_filter = "created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)"
+            interval_days = 90
+        else:  # Default 30d
+            date_filter = "created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
+            interval_days = 30
+            
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Applicants Over Time (with custom date range support)
+        cursor.execute(f"""
+            SELECT DATE(created_at) as date, COUNT(*) as count
+            FROM users
+            WHERE role = 'CANDIDATE' AND {date_filter}
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        """)
+        applicants_over_time = [{'date': str(row[0]), 'count': row[1]} for row in cursor.fetchall()]
+        
+        # 2. Interview Outcomes
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN ir.decision = 'accepted' THEN 1 ELSE 0 END) as accepted,
+                SUM(CASE WHEN ir.decision = 'rejected' THEN 1 ELSE 0 END) as rejected,
+                COUNT(DISTINCT i.id) - COUNT(ir.id) as pending
+            FROM interviews i
+            LEFT JOIN interview_results ir ON i.id = ir.interview_id
+        """)
+        outcomes = cursor.fetchone()
+        interview_outcomes = {
+            'accepted': outcomes[0] or 0,
+            'rejected': outcomes[1] or 0,
+            'pending': outcomes[2] or 0
+        }
+        
+        # 3. Service Line Breakdown (by job title)
+        cursor.execute("""
+            SELECT jr.title, COUNT(DISTINCT i.id) as interview_count
+            FROM job_requirements jr
+            LEFT JOIN interviews i ON jr.id = i.requirement_id
+            GROUP BY jr.id, jr.title
+            ORDER BY interview_count DESC
+            LIMIT 10
+        """)
+        service_line_breakdown = [{'title': row[0], 'count': row[1]} for row in cursor.fetchall()]
+        
+        # 4. Hiring Funnel
+        cursor.execute('SELECT COUNT(*) FROM users WHERE role = "CANDIDATE"')
+        total_applications = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.candidate_id)
+            FROM interviews i
+        """)
+        shortlisted = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.id)
+            FROM interviews i
+            WHERE i.status = 'scheduled'
+        """)
+        scheduled = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.id)
+            FROM interviews i
+            WHERE i.status = 'completed'
+        """)
+        interviewed = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT i.id)
+            FROM interviews i
+            JOIN interview_results ir ON i.id = ir.interview_id
+            WHERE ir.decision = 'accepted'
+        """)
+        selected = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(DISTINCT oc.candidate_id)
+            FROM onboarding_confirmations oc
+            WHERE oc.confirmation = 'yes'
+        """)
+        onboarded = cursor.fetchone()[0]
+        
+        hiring_funnel = {
+            'applications': total_applications,
+            'shortlisted': shortlisted,
+            'scheduled': scheduled,
+            'interviewed': interviewed,
+            'selected': selected,
+            'onboarded': onboarded
+        }
+        
+        # 5. Top Skills (most requested)
+        cursor.execute("""
+            SELECT required_skills
+            FROM job_requirements
+            WHERE required_skills IS NOT NULL AND required_skills != ''
+        """)
+        all_skills = {}
+        for row in cursor.fetchall():
+            try:
+                skills_list = json.loads(row[0]) if row[0] else []
+                for skill in skills_list:
+                    if skill:
+                        all_skills[skill] = all_skills.get(skill, 0) + 1
+            except:
+                continue
+        
+        top_skills = sorted(all_skills.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_skills_data = [{'skill': skill, 'count': count} for skill, count in top_skills]
+        
+        # 6. Overview Metrics (with dynamic date range)
+        if start_date and end_date:
+            # For custom range, compare with previous period of same length
+            cursor.execute(f"""
+                SELECT 
+                    (SELECT COUNT(*) FROM interviews WHERE {date_filter}) as applications_current,
+                    (SELECT COUNT(*) FROM interviews WHERE 
+                     created_at >= DATE_SUB('{start_date}', INTERVAL {interval_days} DAY) 
+                     AND created_at < '{start_date}') as applications_previous
+            """)
+        else:
+            cursor.execute("""
+                SELECT 
+                    (SELECT COUNT(*) FROM interviews WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) as applications_week,
+                    (SELECT COUNT(*) FROM interviews WHERE created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY) AND created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)) as applications_last_week
+            """)
+        
+        apps_data = cursor.fetchone()
+        applications_this_week = apps_data[0] or 0
+        applications_last_week = apps_data[1] or 0
+        applications_change = ((applications_this_week - applications_last_week) / applications_last_week * 100) if applications_last_week > 0 else 0
+        
+        # Success rate
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN ir.decision = 'accepted' THEN 1 ELSE 0 END) as accepted
+            FROM interview_results ir
+        """)
+        success_data = cursor.fetchone()
+        total_interviews = success_data[0] or 0
+        accepted_count = success_data[1] or 0
+        success_rate = (accepted_count / total_interviews * 100) if total_interviews > 0 else 0
+        
+        # Average time to hire
+        cursor.execute("""
+            SELECT AVG(DATEDIFF(oc.created_at, i.created_at)) as avg_days
+            FROM interviews i
+            JOIN onboarding_confirmations oc ON i.id = oc.interview_id
+            WHERE oc.confirmation = 'yes'
+        """)
+        avg_time = cursor.fetchone()[0]
+        avg_time_to_hire = round(avg_time) if avg_time else 0
+        
+        overview_metrics = {
+            'applications_this_week': applications_this_week,
+            'applications_change': round(applications_change, 1),
+            'success_rate': round(success_rate, 1),
+            'avg_time_to_hire': avg_time_to_hire,
+            'active_positions': len(service_line_breakdown)
+        }
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'applicants_over_time': applicants_over_time,
+            'interview_outcomes': interview_outcomes,
+            'service_line_breakdown': service_line_breakdown,
+            'hiring_funnel': hiring_funnel,
+            'top_skills': top_skills_data,
+            'overview_metrics': overview_metrics
+        })
+        
+    except Exception as e:
+        app.logger.exception('Failed to get HR analytics')
+        return jsonify({'message': 'Internal server error', 'error': str(e)}), 500
+
+@app.route('/candidate/analytics', methods=['GET'])
+def get_candidate_analytics():
+    try:
+        payload = verify_token()
+        if not payload:
+            return jsonify({'message': 'Unauthorized'}), 401
+            
+        candidate_id = payload['user_id']
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Personal Journey Timeline
+        cursor.execute("""
+            SELECT 
+                u.created_at as application_date,
+                MIN(i.created_at) as first_interview_scheduled,
+                MIN(CASE WHEN i.status = 'completed' THEN i.created_at END) as interview_completed,
+                MIN(ir.created_at) as decision_date,
+                ir.decision,
+                MIN(bgv.created_at) as bgv_completed,
+                MIN(vc.created_at) as vendor_completed,
+                MIN(oc.created_at) as onboarding_date
+            FROM users u
+            LEFT JOIN interviews i ON u.id = i.candidate_id
+            LEFT JOIN interview_results ir ON i.id = ir.interview_id
+            LEFT JOIN bgv_forms bgv ON i.id = bgv.interview_id AND u.id = bgv.candidate_id
+            LEFT JOIN vendor_checklists vc ON i.id = vc.interview_id AND u.id = vc.candidate_id
+            LEFT JOIN onboarding_confirmations oc ON i.id = oc.interview_id AND u.id = oc.candidate_id
+            WHERE u.id = %s
+            GROUP BY u.id, ir.decision
+        """, (candidate_id,))
+        
+        timeline_data = cursor.fetchone()
+        journey_timeline = {
+            'application_date': timeline_data[0].isoformat() if timeline_data and timeline_data[0] else None,
+            'first_interview_scheduled': timeline_data[1].isoformat() if timeline_data and timeline_data[1] else None,
+            'interview_completed': timeline_data[2].isoformat() if timeline_data and timeline_data[2] else None,
+            'decision_date': timeline_data[3].isoformat() if timeline_data and timeline_data[3] else None,
+            'decision': timeline_data[4] if timeline_data and timeline_data[4] else None,
+            'bgv_completed': timeline_data[5].isoformat() if timeline_data and timeline_data[5] else None,
+            'vendor_completed': timeline_data[6].isoformat() if timeline_data and timeline_data[6] else None,
+            'onboarding_date': timeline_data[7].isoformat() if timeline_data and timeline_data[7] else None
+        }
+        
+        # 2. Application Status Breakdown
+        cursor.execute("""
+            SELECT 
+                COUNT(CASE WHEN i.status IN ('pending_client', 'scheduled') THEN 1 END) as pending,
+                COUNT(CASE WHEN i.status = 'completed' AND ir.decision = 'accepted' THEN 1 END) as offers,
+                COUNT(CASE WHEN i.status = 'completed' AND ir.decision = 'rejected' THEN 1 END) as rejected,
+                COUNT(CASE WHEN i.status = 'completed' THEN 1 END) as completed
+            FROM interviews i
+            LEFT JOIN interview_results ir ON i.id = ir.interview_id
+            WHERE i.candidate_id = %s
+        """, (candidate_id,))
+        
+        status_data = cursor.fetchone()
+        application_status = {
+            'pending': status_data[0] or 0,
+            'offers': status_data[1] or 0,
+            'rejected': status_data[2] or 0,
+            'completed': status_data[3] or 0
+        }
+        
+        # 3. Interview Performance
+        cursor.execute("""
+            SELECT 
+                COUNT(DISTINCT i.id) as total_interviews,
+                COUNT(CASE WHEN ir.decision = 'accepted' THEN 1 END) as accepted
+            FROM interviews i
+            LEFT JOIN interview_results ir ON i.id = ir.interview_id
+            WHERE i.candidate_id = %s AND i.status = 'completed'
+        """, (candidate_id,))
+        
+        perf_data = cursor.fetchone()
+        total_completed = perf_data[0] or 0
+        total_accepted = perf_data[1] or 0
+        success_rate = (total_accepted / total_completed * 100) if total_completed > 0 else 0
+        
+        interview_performance = {
+            'total_interviews': total_completed,
+            'success_rate': round(success_rate, 1)
+        }
+        
+        # 4. Skill Match Analysis (get candidate skills and compare with job requirements)
+        cursor.execute("""
+            SELECT cp.resume_path
+            FROM candidate_profiles cp
+            WHERE cp.user_id = %s
+        """, (candidate_id,))
+        
+        profile = cursor.fetchone()
+        candidate_skills = []
+        
+        if profile and profile[0]:
+            try:
+                with open(profile[0], 'rb') as f:
+                    content = f.read()
+                
+                text = ""
+                filename = profile[0].lower()
+                if filename.endswith(".pdf") or (content and content[:4] == b"%PDF"):
+                    text = _extract_text_from_pdf_bytes(content)
+                elif filename.endswith(".docx") or filename.endswith(".doc"):
+                    text = _extract_text_from_docx_bytes(content)
+                
+                if text:
+                    candidate_skills = _call_gen_ai_for_skills(text)
+            except:
+                pass
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'journey_timeline': journey_timeline,
+            'application_status': application_status,
+            'interview_performance': interview_performance,
+            'candidate_skills': candidate_skills
+        })
+        
+    except Exception as e:
+        app.logger.exception('Failed to get candidate analytics')
+        return jsonify({'message': 'Internal server error', 'error': str(e)}), 500
+
 @app.route('/hr/interview-tracking', methods=['GET'])
 def get_hr_interview_tracking():
     try:

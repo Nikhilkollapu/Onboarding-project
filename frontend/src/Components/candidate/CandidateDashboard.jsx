@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { logout, decodeToken } from '../../services/auth';
 import { httpRequest } from '../../services/http';
 import { useNavigate } from 'react-router-dom';
+import CandidateAnalytics from './CandidateAnalytics';
 
 function CandidateDashboard() {
     const [active, setActive] = useState('dashboard');
@@ -24,6 +25,7 @@ function CandidateDashboard() {
                     <aside className="cand-sidebar">
                         <nav className="cand-nav">
                             <button className={`cand-btn ${active==='dashboard' ? 'active' : ''}`} onClick={() => setActive('dashboard')}>Dashboard</button>
+                            <button className={`cand-btn ${active==='analytics' ? 'active' : ''}`} onClick={() => setActive('analytics')}>My Journey</button>
                             <button className={`cand-btn ${active==='profile' ? 'active' : ''}`} onClick={() => setActive('profile')}>Profile</button>
                             <button className={`cand-btn ${active==='interviews' ? 'active' : ''}`} onClick={() => setActive('interviews')}>Interviews</button>
                             <button className={`cand-btn ${active==='vacancies' ? 'active' : ''}`} onClick={() => setActive('vacancies')}>Vacancies</button>
@@ -33,6 +35,9 @@ function CandidateDashboard() {
                     <section className="cand-content">
                         {active === 'dashboard' && (
                             <DashboardContent />
+                        )}
+                        {active === 'analytics' && (
+                            <CandidateAnalytics />
                         )}
                         {active === 'profile' && (
                             <ProfileForm defaultName={displayName} defaultEmail={payload?.email || ''} />
